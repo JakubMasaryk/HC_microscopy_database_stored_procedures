@@ -278,7 +278,7 @@ begin
 	)
 	select -- selected fields
 		cte1.effect_stage_label,
-		replace(replace(replace(replace(replace(cte1.cluster_label, '_', ' '), 'dna', 'DNA'), 'mrna', 'mRNA'), 'rna', 'RNA'), 'sec62 63', 'sec62-63') as cluster_label,
+		replace(replace(replace(replace(replace(cte1.cluster_label, '_', ' '), 'dna', 'DNA'), 'mrna', 'mRNA'), 'rna', 'RNA'), 'sec62 63', 'Sec62/Sec63') as cluster_label,
 		case
 			when e.go_enrichment_category= 'GO Process' then 'GO Biological Process'
 			else 'GO Cellular Compartment'
