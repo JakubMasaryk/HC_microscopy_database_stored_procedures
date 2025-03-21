@@ -234,6 +234,7 @@ drop procedure if exists hc_microscopy_data_v2.p_clusters_enrichments;
 delimiter //
 create procedure hc_microscopy_data_v2.p_clusters_enrichments(in p_strength_threshold decimal(3,2), in p_fdr_threshold decimal(7,6))
 begin
+
 	with
 	cte_unique_effect_stage_cluster as -- unique list of effect-stage-cluster combinations 
 	(
@@ -310,8 +311,13 @@ begin
 		ce.strength >=  p_strength_threshold and
         	ce.fdr < p_fdr_threshold
 	order by
-		cte1.effect_stage_label_id asc,
-		cte1.cluster_id asc;       
+		cte1.effect_stage_label asc,
+		cte3.nodes_per_cluster desc,
+        	cluster_label asc,
+        	go_enrichment_category asc,
+        	ce.strength desc;
+        
 end //
 delimiter ;
--- call hc_microscopy_data_v2.p_clusters_enrichments(1.20, 0.05);
+
+-- call hc_microscopy_data_v2.p_clusters_enrichments(1.25, 0.05);
