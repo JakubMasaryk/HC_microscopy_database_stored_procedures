@@ -11,7 +11,7 @@ delimiter //
 create procedure p_wt_characterisation_data(in p_initial_timepoints_skipped int, in p_experiment_subtype varchar(15))
 begin
 	with 
-	cte_wt_characterisation_date_label as # relevant experiments
+	cte_wt_characterisation_date_label as -- relevant experiments
 	(
 	select distinct
 		date_label
@@ -25,7 +25,7 @@ begin
 		et.experiment_type= 'WT characterisation' and
 		et.experiment_subtype= p_experiment_subtype
 	),
-	cte_microscopy_interval as # microscopy interval for WT characterisation experiments
+	cte_microscopy_interval as -- microscopy interval for WT characterisation experiments
 	(
 	select distinct
 		microscopy_interval_min
@@ -34,7 +34,7 @@ begin
 	where
 		date_label = (select * from cte_wt_characterisation_date_label)
 	),
-	cte_microscopy_initial_delay as # microscopy initial delay for for WT characterisation experiments
+	cte_microscopy_initial_delay as -- microscopy initial delay for for WT characterisation experiments
 	(
 	select distinct
 		microscopy_initial_delay_min
@@ -43,7 +43,7 @@ begin
 	where
 		date_label = (select * from cte_wt_characterisation_date_label)
 	)
-	select # fields
+	select -- fields
 		cac.experimental_well_label,
 		cac.timepoint,
         (cac.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)))/60 as timepoint_hours,
@@ -55,13 +55,13 @@ begin
 		nas.avg_size_single_focus
 	from
 		experimental_data_sbw_cell_area_and_counts as cac
-	inner join #join
+	inner join -- join
 		experimental_data_sbw_foci_number_and_size as nas
 	on
 		cac.date_label= nas.date_label and
 		cac.experimental_well_label= nas.experimental_well_label and
 		cac.timepoint= nas.timepoint
-	where #filtering
+	where -- filtering
 		cac.date_label= (select * from cte_wt_characterisation_date_label) and
 		cac.timepoint > p_initial_timepoints_skipped;
 end//
@@ -81,10 +81,10 @@ create procedure hc_microscopy_data_v2.p_number_of_foci_single_cell_data_two_tim
 begin
 	select
 		*
-    from
-    (
+    	from
+    	(
 	with 
-	cte_experiment_id as # relevant experiments
+	cte_experiment_id as -- relevant experiments
 	(
 	select distinct
 		e.date_label
@@ -98,7 +98,7 @@ begin
 		et.experiment_type= 'WT characterisation' and
 		et.experiment_subtype= 'basic'
 	),
-	cte_microscopy_interval as # microscopy interval for WT characterisation experiments
+	cte_microscopy_interval as -- microscopy interval for WT characterisation experiments
 	(
 	select distinct
 		microscopy_interval_min
@@ -107,7 +107,7 @@ begin
 	where
 		date_label in (select * from cte_experiment_id)
 	),
-	cte_microscopy_initial_delay as # microscopy initial delay for for WT characterisation experiments
+	cte_microscopy_initial_delay as -- microscopy initial delay for for WT characterisation experiments
 	(
 	select distinct
 		microscopy_initial_delay_min
@@ -116,7 +116,7 @@ begin
 	where
 		date_label in (select * from cte_experiment_id)
 	)
-	select # selected fields
+	select -- selected fields
 		scd_fna.experimental_well_label,
 		scd_fna.timepoint,
 		scd_fna.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
@@ -139,7 +139,7 @@ begin
 	where
 		scd_fna.date_label in (select * from cte_experiment_id)
 	) as a
-    where # filter down to 2 timepoints (reference and selected)
+    	where -- filter down to 2 timepoints (reference and selected)
 		a.timepoint_minutes = p_reference_timepoint or
         a.timepoint_minutes = p_selected_timepoint;
 end //
@@ -221,7 +221,7 @@ begin
 	where -- filtering to data from TS screening 1st round
 		scm.date_label in (select * from cte_TS_screen_first_round_dates) and
         cac.timepoint > p_initital_skipped_timepoints;
-end//
+end //
 delimiter ;
 -- call p_ts_screen_first_round_all_data(3);
 
@@ -229,12 +229,11 @@ delimiter ;
 -- Figure 3 (B): data on clusters and enrichments
 # stored procedure p_ts_screen_first_round_all_data called in python script 'Figure3_enrichments'
 # returns data on all clusters and corresponding enrichments based on hits from TS screening 1st round
-#takes no arguments
+# arguments: 'p_strength_threshold': minimal enrichment strength, 'p_fdr_threshold': maximal false discovery rate (fdr)
 drop procedure if exists hc_microscopy_data_v2.p_clusters_enrichments;
 delimiter //
-create procedure hc_microscopy_data_v2.p_clusters_enrichments()
+create procedure hc_microscopy_data_v2.p_clusters_enrichments(in p_strength_threshold decimal(3,2), in p_fdr_threshold decimal(7,6))
 begin
-
 	with
 	cte_unique_effect_stage_cluster as -- unique list of effect-stage-cluster combinations 
 	(
@@ -307,10 +306,12 @@ begin
 		cte_nodes_per_cluster as cte3
 	on
 		cte3.cluster_id= ce.cluster_id
+	where
+		ce.strength >=  p_strength_threshold and
+        	ce.fdr < p_fdr_threshold
 	order by
 		cte1.effect_stage_label_id asc,
-		cte1.cluster_id asc;
-        
+		cte1.cluster_id asc;       
 end //
 delimiter ;
-call hc_microscopy_data_v2.p_clusters_enrichments();
+-- call hc_microscopy_data_v2.p_clusters_enrichments(1.20, 0.05);
