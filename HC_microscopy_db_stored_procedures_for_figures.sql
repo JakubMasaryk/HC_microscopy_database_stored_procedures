@@ -286,7 +286,7 @@ begin
 		e.go_id as go_enrichment_id,
 		e.enrichment_description,
 		ce.strength,
-		ce.fdr,
+		round(ce.fdr, 4) as fdr,
 		cte3.nodes_per_cluster,
 		cte2.enrichments_per_cluster
 	from
