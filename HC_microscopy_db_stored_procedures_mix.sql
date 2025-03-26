@@ -1,4 +1,4 @@
-#
+--
 drop procedure if exists hc_microscopy_data_v2.p_hits_stages;
 delimiter //
 create procedure p_hits_stages()
@@ -29,7 +29,7 @@ delimiter ;
 
 
 
-# all alleles for each unique hit + average difference from their corresponding WT control (averaged per plate), if mutation occurs multiple times- averaged
+-- all alleles for each unique hit + average difference from their corresponding WT control (averaged per plate), if mutation occurs multiple times- averaged
 drop procedure if exists hc_microscopy_data_v2.p_hit_alleles_percentage;
 delimiter //
 create procedure p_hit_alleles_percentage() 
