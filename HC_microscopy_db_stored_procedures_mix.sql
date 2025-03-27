@@ -1,4 +1,7 @@
---
+-- list of unique hits (standard gene name)
+-- columns: effect-stage
+-- 1: identified as a hit for particular effect-stage
+-- 0: not considered a hit  for particular effect-stage
 drop procedure if exists hc_microscopy_data_v2.p_hits_stages;
 delimiter //
 create procedure p_hits_stages()
@@ -29,20 +32,22 @@ delimiter ;
 
 
 
--- all alleles for each unique hit + average difference from their corresponding WT control (averaged per plate), if mutation occurs multiple times- averaged
+-- all alleles/mutation for each unique hit + average difference from their corresponding WT control 
+-- wt controls averaged per plate 
+-- mutations occuring multiple times averaged
 drop procedure if exists hc_microscopy_data_v2.p_hit_alleles_percentage;
 delimiter //
 create procedure p_hit_alleles_percentage() 
 begin
 	with
-	cte_unique_hits_systematic_name as
+	cte_unique_hits_systematic_name as -- unique hits
 	(
 	select
 		hit_systematic_name
 	from
 		unique_hits
 	),
-	cte_all_hit_mutations as
+	cte_all_hit_mutations as  -- all mutations corresponding to the uniqze hits
 	(
 	select distinct
 		mutation
@@ -53,7 +58,7 @@ begin
 	order by
 		mutation asc
 	),
-	cte_selected_experiments as
+	cte_selected_experiments as -- list of relevant experiments (containing at least one of the selected mutations)
 	(
 	select distinct
 		e.date_label
@@ -73,7 +78,7 @@ begin
 		et.experiment_type= 'TS collection screening' and
 		et.experiment_subtype= 'first round'
 	),
-	cte_control_data as
+	cte_control_data as -- averaged control data from relevant experiments (averaged per plate and timepoint), single control dataset for each experiment
 	(
 	select
 		cac.date_label,
@@ -116,7 +121,7 @@ begin
 		*
 	from
 	(
-	select
+	select -- pivot: mutation(rows)-stage(columns)-average difference WT-mutant(values)
 		a.mutated_gene_standard_name,
 		a.mutation,
 		avg(case when a.stage= 'formation' then a.percentage_control_minus_mutant else null end) as formation,
@@ -124,7 +129,7 @@ begin
 		avg(case when a.stage= 'clearance' then a.percentage_control_minus_mutant else null end) as clearance
 	from
 	(
-	select
+	select -- substract (WT-mutant), define stages
 		sacm.mutated_gene_standard_name,
 		sacm.mutation,
 		round(ctrl.percentage_control_data, 2) - round(cac.number_of_cells_with_foci/cac.number_of_cells*100, 2) as percentage_control_minus_mutant,
