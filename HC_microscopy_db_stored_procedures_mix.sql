@@ -172,3 +172,131 @@ begin
 end //
 delimiter ;
 -- call p_hit_alleles_percentage;
+
+
+
+drop procedure if exists hc_microscopy_data_v2.p_most_affected_alleles_slower_clearance_hits;
+delimiter //
+-- for each hit from the 'slower clearance' group returns 3 of the most affected alleles (mutations)
+-- calculated as an average difference (between a particular mutant and a corresponding control) of a percentage of cells containing aggregates in the clearance stage (time > 300 minutes)
+-- control data averaged per each plate and assigned to each mutant based on date label
+create procedure hc_microscopy_data_v2.p_most_affected_alleles_slower_clearance_hits()
+#most affected alleles (top3) of the decreased-clearance hits, for follow-up
+begin
+	with
+	cte_slower_clearance_hits as -- systematic names for all slower-clearance hits
+	(
+	select
+		hc.hit_systematic_name
+	from
+		hits_clusters as hc
+	inner join
+		effect_stage_labels as esl
+	on
+		hc.effect_stage_label_id=esl.effect_stage_label_id
+	where
+		esl.effect_stage_label= 'slower clearance\r'
+	),
+	cte_selected_experiments as -- selected experiments (date_labels) that contain at least one of the slower-clearance hits (only TS screening 1st round, 'Good' data quality)
+	(
+	select distinct
+		e.date_label
+	from
+		experiments as e
+	inner join
+		experiment_types as et
+	on
+		e.experiment_type_id=et.experiment_type_id
+	inner join
+		strains_and_conditions_main as sacm
+	on
+		sacm.date_label=e.date_label
+	where
+		et.experiment_type = 'TS collection screening' and
+		et.experiment_subtype= 'first round' and
+		e.data_quality= 'Good' and
+		sacm.mutated_gene_systematic_name in (select * from cte_slower_clearance_hits)
+	),
+	cte_microscopy_interval as -- microscopy interval for TS screen (1st round)
+	(
+	select distinct
+		microscopy_interval_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	),
+	cte_microscopy_initial_delay as -- microscopy initial delay for TS screen (1st round)
+	(
+	select distinct
+		microscopy_initial_delay_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	),
+	cte_control_data as -- date label plus data on percentage of cells containing aggregates, only WT controls, averaged per plate (only clearance timepoints included)
+	(
+	select
+		cac.date_label,
+		cac.timepoint,
+		cac.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		round(avg(cac.number_of_cells_with_foci/cac.number_of_cells*100), 4) as percentage_control
+	from
+		experimental_data_sbw_cell_area_and_counts as cac
+	inner join
+		strains_and_conditions_main as sacm
+	on
+		sacm.date_label= cac.date_label and
+		sacm.experimental_well_label= cac.experimental_well_label
+	where
+		sacm.mutation= 'wt control' and
+		cac.date_label in (select * from cte_selected_experiments) and
+		cac.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) > 300
+	group by
+		cac.date_label,
+		cac.timepoint
+	order by 
+		cac.date_label asc
+	)
+	select -- pivot table
+		a.mutated_gene_standard_name,
+		ifnull(max(case when a.allele_index = 1 then a.mutation else null end), "-") as most_affected_allele,
+		ifnull(max(case when a.allele_index = 2 then a.mutation else null end), "-") as second_most_affected_allele,
+		ifnull(max(case when a.allele_index = 3 then a.mutation else null end), "-") as third_most_affected_allele
+	from
+	(
+	select -- control minus mutant data
+		sacm.mutated_gene_standard_name,
+		sacm.mutation,
+		row_number() over (partition by sacm.mutated_gene_standard_name order by round(avg(ctrl.percentage_control - cac.number_of_cells_with_foci/cac.number_of_cells*100),2) asc) as allele_index,
+		round(avg(ctrl.percentage_control - cac.number_of_cells_with_foci/cac.number_of_cells*100),2) as control_minus_hit_percentage
+	from
+		experimental_data_sbw_cell_area_and_counts as cac
+	inner join
+		strains_and_conditions_main as sacm
+	on
+		sacm.date_label= cac.date_label and
+		sacm.experimental_well_label= cac.experimental_well_label
+	inner join
+		cte_control_data as ctrl
+	on
+		cac.date_label = ctrl.date_label and 
+		cac.timepoint=ctrl.timepoint
+	where
+		sacm.mutated_gene_systematic_name in (select * from cte_slower_clearance_hits) and
+		cac.date_label in (select * from cte_selected_experiments) and
+		cac.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) > 300 -- only clearance-stage timepoints
+	group by
+		sacm.mutated_gene_standard_name,
+		sacm.mutation -- averaged per allele (mutation), in case multiple similar alleles present (duplicate entries present in the TS collection in high frequency)
+	order by
+		sacm.mutated_gene_standard_name asc
+	) as a
+	where
+		a.control_minus_hit_percentage < 0 -- only negative values (mutants where the clearance is negatively affected, percentage of cells with aggregates higher in the clearance stage, compared to control)
+	group by
+		a.mutated_gene_standard_name;
+end //
+delimiter ;
+-- call p_most_affected_alleles_slower_clearance_hits();
