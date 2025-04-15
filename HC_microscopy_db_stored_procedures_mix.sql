@@ -175,11 +175,11 @@ delimiter ;
 
 
 
-drop procedure if exists hc_microscopy_data_v2.p_most_affected_alleles_slower_clearance_hits;
-delimiter //
 -- for each hit from the 'slower clearance' group returns 3 of the most affected alleles (mutations)
 -- calculated as an average difference (between a particular mutant and a corresponding control) of a percentage of cells containing aggregates in the clearance stage (time > 300 minutes)
 -- control data averaged per each plate and assigned to each mutant based on date label
+drop procedure if exists hc_microscopy_data_v2.p_most_affected_alleles_slower_clearance_hits;
+delimiter //
 create procedure hc_microscopy_data_v2.p_most_affected_alleles_slower_clearance_hits()
 #most affected alleles (top3) of the decreased-clearance hits, for follow-up
 begin
@@ -299,4 +299,137 @@ begin
 		a.mutated_gene_standard_name;
 end //
 delimiter ;
+
+
+
+-- returns a single-cell data on number of aggregates per cell and average size of a single aggregate for all alleles of selected mutated gene from a selected time range
+-- also returns corresponding control data: above mentioned data for 'wt control' from a particular experiment (defind by the 'date_label' field)
+-- data filtered by a minimal-threshold cell count in the initial timepoint
+-- inputs: p_selected_gene- selected gene, p_min_cell_count- minimal no. of cells in the well in the first timepoint, p_start_min- starting timepoint of a selected time range, p_end_min ending timepoint of a selected time range
+drop procedure if exists hc_microscopy_data_v2.p_selected_gene_alleles_foci_count_size;
+delimiter //
+create procedure hc_microscopy_data_v2.p_selected_gene_alleles_foci_count_size(in p_selected_gene varchar(6), in p_min_cell_count int, in p_start_min int, in p_end_min int)
+begin
+	with
+	cte_selected_experiments as -- selected expoeriments (date_labels) to pull control data from
+	(
+	select distinct
+		e.date_label
+	from
+		experiments as e
+	inner join
+		experiment_types as et
+	on
+		e.experiment_type_id= et.experiment_type_id
+	inner join
+		strains_and_conditions_main as sacm
+	on
+		sacm.date_label=e.date_label
+	where
+		et.experiment_type = 'TS collection screening' and
+		et.experiment_subtype= 'first round' and
+		e.data_quality= 'Good' and
+		sacm.mutated_gene_standard_name = p_selected_gene
+	),
+	cte_relevant_wells_with_above_thr_cc as -- filter down to wells with the initial cell count above threshold (p_min_cell_count)
+	(
+	select -- wells that have above the threshold cell counts in the initial timepoint
+		sacm.date_label,
+		sacm.experimental_well_label
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		experimental_data_sbw_cell_area_and_counts as cac
+	on
+		sacm.date_label= cac.date_label and
+		sacm.experimental_well_label= cac.experimental_well_label
+	where
+		sacm.date_label in (select * from cte_selected_experiments) and
+		cac.timepoint= 1 and
+		cac.number_of_cells >= p_min_cell_count
+	),
+	cte_microscopy_interval as -- microscopy interval for TS screen (1st round)
+	(
+	select distinct
+		microscopy_interval_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	),
+	cte_microscopy_initial_delay as -- microscopy initial delay for TS screen (1st round)
+	(
+	select distinct
+		microscopy_initial_delay_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	),
+	cte_control_data as -- control data
+	(
+	select
+		sacm.date_label,
+		sacm.mutated_gene_standard_name,
+		sacm.mutation,
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		fnaa.number_of_foci,
+		fnaa.total_foci_area/fnaa.number_of_foci as avg_size_single_focus
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		cte_relevant_wells_with_above_thr_cc as cc_filter
+	on
+		sacm.date_label=cc_filter.date_label and
+		sacm.experimental_well_label=cc_filter.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label=fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	where
+		sacm.date_label in (select * from cte_selected_experiments) and
+		sacm.mutation= 'wt control' and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) >= p_start_min and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) <= p_end_min
+	)
+	select -- selected mutant data
+		sacm.date_label,
+		sacm.mutated_gene_standard_name,
+		sacm.mutation,
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		fnaa.number_of_foci,
+		fnaa.total_foci_area/fnaa.number_of_foci as avg_size_single_focus
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		cte_relevant_wells_with_above_thr_cc as cc_filter
+	on
+		sacm.date_label=cc_filter.date_label and
+		sacm.experimental_well_label=cc_filter.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label=fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	where
+		sacm.date_label in (select * from cte_selected_experiments) and
+		sacm.mutated_gene_standard_name= p_selected_gene and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) >= p_start_min and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) <= p_end_min
+	union 
+	select -- corresponding control data
+		*
+	from
+		cte_control_data
+	order by 
+		date_label asc,
+        mutated_gene_standard_name asc,
+        timepoint_minutes asc;
+end//
+delimiter ;
+
+-- call p_selected_gene_alleles_foci_count_size('ACT1', 50, 280, 330);
 -- call p_most_affected_alleles_slower_clearance_hits();
