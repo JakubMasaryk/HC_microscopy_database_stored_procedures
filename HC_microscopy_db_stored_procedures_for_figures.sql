@@ -74,17 +74,17 @@ delimiter ;
 # returns data from WT characterisation experiment; data on number of foci per single cell (not averaged per well), 2 timepoints: well labels, timepoint fields, cell id (based on FOV-object_id), number of foci, conditions fields
 # data on both As-exposed and control cells
 # arguments: 'p_reference_timepoint': decimal, reference timepoint (late formation stage)
-#			 'p_selected_timepoint': decimal, selected timepoint (late relocation & fusion stage)
+#			 'p_selected_timepoint1-3': decimal, selected timepoints (early formation, early and late relocation & fusion stage)
 drop procedure if exists hc_microscopy_data_v2.p_number_of_foci_single_cell_data_two_timepoints;
 delimiter //
-create procedure hc_microscopy_data_v2.p_number_of_foci_single_cell_data_two_timepoints(in p_reference_timepoint decimal(4,1), in p_selected_timepoint decimal(4,1))
+create procedure hc_microscopy_data_v2.p_number_of_foci_single_cell_data_two_timepoints(in p_reference_timepoint decimal(4,1), in p_selected_timepoint_1 decimal(4,1), in p_selected_timepoint_2 decimal(4,1), in p_selected_timepoint_3 decimal(4,1))
 begin
 	select
 		*
-    	from
-    	(
+    from
+    (
 	with 
-	cte_experiment_id as -- relevant experiments
+	cte_experiment_id as # relevant experiments
 	(
 	select distinct
 		e.date_label
@@ -98,7 +98,7 @@ begin
 		et.experiment_type= 'WT characterisation' and
 		et.experiment_subtype= 'basic'
 	),
-	cte_microscopy_interval as -- microscopy interval for WT characterisation experiments
+	cte_microscopy_interval as # microscopy interval for WT characterisation experiments
 	(
 	select distinct
 		microscopy_interval_min
@@ -107,7 +107,7 @@ begin
 	where
 		date_label in (select * from cte_experiment_id)
 	),
-	cte_microscopy_initial_delay as -- microscopy initial delay for for WT characterisation experiments
+	cte_microscopy_initial_delay as # microscopy initial delay for for WT characterisation experiments
 	(
 	select distinct
 		microscopy_initial_delay_min
@@ -116,7 +116,7 @@ begin
 	where
 		date_label in (select * from cte_experiment_id)
 	)
-	select -- selected fields
+	select # selected fields
 		scd_fna.experimental_well_label,
 		scd_fna.timepoint,
 		scd_fna.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
@@ -139,12 +139,14 @@ begin
 	where
 		scd_fna.date_label in (select * from cte_experiment_id)
 	) as a
-    	where -- filter down to 2 timepoints (reference and selected)
+    where # filter down to 2 timepoints (reference and selected)
 		a.timepoint_minutes = p_reference_timepoint or
-        a.timepoint_minutes = p_selected_timepoint;
+        a.timepoint_minutes = p_selected_timepoint_1 or
+        a.timepoint_minutes = p_selected_timepoint_2 or
+        a.timepoint_minutes = p_selected_timepoint_3;
 end //
 delimiter ;
--- call p_number_of_foci_single_cell_data_two_timepoints(98, 315);
+-- call p_number_of_foci_single_cell_data_two_timepoints(70, 98, 297.5, 315);
 
 
 -- Figure 3 (A): TS mutant library screening 1st round
