@@ -299,7 +299,7 @@ begin
 		a.mutated_gene_standard_name;
 end //
 delimiter ;
-
+-- call p_most_affected_alleles_slower_clearance_hits();
 
 
 -- returns a single-cell data on number of aggregates per cell and average size of a single aggregate for all alleles of selected mutated gene from a selected time range
