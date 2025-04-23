@@ -432,4 +432,39 @@ end//
 delimiter ;
 
 -- call p_selected_gene_alleles_foci_count_size('ACT1', 50, 280, 330);
--- call p_most_affected_alleles_slower_clearance_hits();
+
+
+
+-- function returns unique-allele/mutation counts for every gene in the TS collection
+-- input: selected gene- standard name (e.g., ACT1)
+drop function if exists hc_microscopy_data_v2.f_no_of_alleles;
+delimiter //
+create function hc_microscopy_data_v2.f_no_of_alleles(p_gene_systematic_name varchar(12))
+returns int
+deterministic
+begin
+	declare v_no_of_alleles int;
+    
+    select 
+		count(distinct mutation)
+	into 
+		v_no_of_alleles
+	from 
+		hc_microscopy_data_v2.strains_and_conditions_main
+	where
+		mutated_gene_standard_name = p_gene_systematic_name;
+	
+    return v_no_of_alleles;
+    
+end //
+delimiter ;
+-- call the function on every gene in the collection
+select distinct
+	mutated_gene_standard_name as gene,
+    f_no_of_alleles(mutated_gene_standard_name) as allele_count
+from
+	strains_and_conditions_main
+where
+	mutated_gene_standard_name != '-'
+order by
+	allele_count desc;
