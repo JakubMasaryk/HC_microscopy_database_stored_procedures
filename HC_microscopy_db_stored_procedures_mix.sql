@@ -538,3 +538,240 @@ begin
 end //
 delimiter ;
 -- call p_unique_hit_stage_effect_allele_count;
+
+
+
+-- returns single-cell data on number of foci per cell for all of the alleles of a selected gene (and corresponding controls)
+-- inputs: 'p_selected_gene'- selected gene, 'p_min_cc'- mnimum cell count for a particular well, 'p_start_min'- starting timepoint in minutes, 'p_end_min'- starting timepoint in minutes
+drop procedure if exists hc_microscopy_data_v2.p_single_cell_data_agg_no_all_alleles_selected_gene;
+delimiter //
+create procedure hc_microscopy_data_v2.p_single_cell_data_agg_no_all_alleles_selected_gene(in p_selected_gene varchar(8), in p_min_cc int, p_start_min int, in p_end_min int)
+begin
+	with
+	cte_selected_experiments as -- selected experiments, only experiments ('date_label') where at least one allele of the selected gene was analysed
+	(
+	select distinct
+		e.date_label
+	from
+		experiments as e
+	inner join
+		experiment_types as et
+	on
+		e.experiment_type_id=et.experiment_type_id
+	inner join
+		strains_and_conditions_main as sacm
+	on
+		e.date_label= sacm.date_label
+	where
+		e.data_quality= 'Good' and
+		et.experiment_type = 'TS collection screening' and
+		et.experiment_subtype= 'first round' and
+		sacm.mutated_gene_standard_name= p_selected_gene
+	),
+	cte_cell_count_filter as -- date label + wells above cell-count threshold
+	(
+	select
+		sacm.date_label,
+		sacm.experimental_well_label
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		experimental_data_sbw_cell_area_and_counts as caac
+	on
+		sacm.date_label=caac.date_label and
+		sacm.experimental_well_label= caac.experimental_well_label
+	where
+		caac.timepoint= 1 and
+		caac.number_of_cells >= p_min_cc
+	),
+	cte_microscopy_interval as -- microscopy interval for TS screen (1st round)
+	(
+	select distinct
+		microscopy_interval_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	),
+	cte_microscopy_initial_delay as -- microscopy initial delay for TS screen (1st round)
+	(
+	select distinct
+		microscopy_initial_delay_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	)
+	select -- control data
+		sacm.date_label,
+		sacm.experimental_well_label,
+		sacm.mutation,
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		fnaa.number_of_foci
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		cte_cell_count_filter as cc -- cell-cont filter
+	on
+		sacm.date_label= cc.date_label and
+		sacm.experimental_well_label= cc.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label= fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	where
+		sacm.date_label in (select * from cte_selected_experiments) and
+		sacm.mutation= 'wt control' and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) > p_start_min and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) <= p_end_min
+	--
+	union -- concat control and mutant data
+	--
+	select -- mutant data
+		sacm.date_label,
+		sacm.experimental_well_label,
+		sacm.mutation,
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		fnaa.number_of_foci
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		cte_cell_count_filter as cc -- cell-cont filter
+	on
+		sacm.date_label= cc.date_label and
+		sacm.experimental_well_label= cc.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label= fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	where
+		sacm.date_label in (select * from cte_selected_experiments) and
+		sacm.mutated_gene_standard_name= p_selected_gene and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) > p_start_min and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) <= p_end_min;
+end //
+delimiter ;
+-- call p_single_cell_data_agg_no_all_alleles_selected_gene('ACT1', 50, 0, 75);
+
+
+
+-- returns single-cell data on foci size for all of the alleles of a selected gene (and corresponding controls)
+-- inputs: 'p_selected_gene'- selected gene, 'p_min_cc'- mnimum cell count for a particular well, 'p_start_min'- starting timepoint in minutes, 'p_end_min'- starting timepoint in minutes
+drop procedure if exists hc_microscopy_data_v2.p_single_cell_data_agg_size_all_alleles_selected_gene;
+delimiter //
+create procedure hc_microscopy_data_v2.p_single_cell_data_agg_size_all_alleles_selected_gene(in p_selected_gene varchar(6), in p_min_cell_count int, in p_start_min int, in p_end_min int)
+begin
+	with
+	cte_selected_experiments as
+	(
+	select distinct
+		e.date_label
+	from
+		experiments as e
+	inner join
+		experiment_types as et
+	on
+		e.experiment_type_id=et.experiment_type_id
+	inner join
+		strains_and_conditions_main as sacm
+	on
+		e.date_label= sacm.date_label
+	where
+		sacm.mutated_gene_standard_name= p_selected_gene and
+		e.data_quality= 'Good' and
+		et.experiment_type = 'TS collection screening' and
+		et.experiment_subtype= 'first round'
+	),
+	cte_cell_count_filter as -- wells with a certain cell count
+	(
+	select 
+		sacm.date_label,
+		sacm.experimental_well_label
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		experimental_data_sbw_cell_area_and_counts as caac
+	on
+		sacm.date_label=caac.date_label and
+		sacm.experimental_well_label=caac.experimental_well_label
+	where
+		caac.timepoint= 1 and
+		caac.number_of_cells >= p_min_cell_count
+	),
+	cte_microscopy_interval as -- microscopy interval for TS screen (1st round)
+	(
+	select distinct
+		microscopy_interval_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	),
+	cte_microscopy_initial_delay as -- microscopy initial delay for TS screen (1st round)
+	(
+	select distinct
+		microscopy_initial_delay_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_selected_experiments)
+	)
+	select -- control data
+		sacm.date_label,
+		sacm.experimental_well_label,
+		sacm.mutation,
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		round(fnaa.total_foci_area/fnaa.number_of_foci, 6) as avg_focus_size
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		cte_cell_count_filter as cc -- cell-cont filter
+	on
+		sacm.date_label= cc.date_label and
+		sacm.experimental_well_label= cc.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label= fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	where
+		sacm.date_label in (select * from cte_selected_experiments) and
+		sacm.mutation= 'wt control' and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) > p_start_min and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) <= p_end_min and
+		fnaa.number_of_foci > 0
+	-- ----
+	union
+	-- ----
+	select -- control data
+		sacm.date_label,
+		sacm.experimental_well_label,
+		sacm.mutation,
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		round(fnaa.total_foci_area/fnaa.number_of_foci, 6) as avg_focus_size
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		cte_cell_count_filter as cc -- cell-cont filter
+	on
+		sacm.date_label= cc.date_label and
+		sacm.experimental_well_label= cc.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label= fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	where
+		sacm.mutated_gene_standard_name= p_selected_gene and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) > p_start_min and
+		fnaa.timepoint * (select * from cte_microscopy_interval) - ((select * from cte_microscopy_interval) - (select * from cte_microscopy_initial_delay)) <= p_end_min and
+		fnaa.number_of_foci > 0;
+end //
+delimiter ;
+-- call p_single_cell_data_agg_size_all_alleles_selected_gene('CDC48', 33, 0, 70);
