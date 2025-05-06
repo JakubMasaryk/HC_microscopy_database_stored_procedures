@@ -468,3 +468,73 @@ where
 	mutated_gene_standard_name != '-'
 order by
 	allele_count desc;
+
+
+
+-- for each unique hit returns:
+-- stage in which the particular protein was idetified as hit (1- YES, 0- NO)
+-- number of alleles in collection ('allele_count')
+-- whether particular hit is potential aggregate-processing protein (present in aggregates but not interacting with As)
+drop procedure if exists hc_microscopy_data_v2.p_unique_hit_stage_effect_allele_count;
+delimiter //
+create procedure hc_microscopy_data_v2.p_unique_hit_stage_effect_allele_count()
+begin
+	with
+	cte_allele_counts as
+	(
+	select distinct
+		sacm.mutated_gene_systematic_name,
+		sacm.mutated_gene_standard_name,
+		f_no_of_alleles(sacm.mutated_gene_standard_name) as allele_count
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		unique_hits as uh
+	on
+		sacm.mutated_gene_systematic_name= uh.hit_systematic_name
+	),
+	cte_potential_agg_processor as
+	(
+	select
+		systematic_name,
+		1 as potential_agg_processor
+	from
+		aggregated_proteins
+	where
+		systematic_name not in (select systematic_name from as_interacting_proteins)
+	)
+	select
+		uh.hit_systematic_name,
+		uh.hit_standard_name,
+		-- esl.effect_stage_label,
+		max(case when esl.effect_stage_label = 'decreased formation\r' then 1 else 0 end) as decreased_formation,
+		max(case when esl.effect_stage_label = 'disrupted relocation & fusion\r' then 1 else 0 end) as disrupted_relocation_and_fusion,
+		max(case when esl.effect_stage_label = 'slower clearance\r' then 1 else 0 end) as slower_clearance,
+		round(avg(ac.allele_count)) as allele_count,
+		ifnull(round(avg(pap.potential_agg_processor)), 0) as potential_agg_processor
+	from
+		unique_hits as uh
+	inner join
+		hits_clusters as hc
+	on 
+		uh.hit_systematic_name= hc.hit_systematic_name
+	inner join
+		effect_stage_labels as esl
+	on
+		esl.effect_stage_label_id= hc.effect_stage_label_id
+	inner join
+		cte_allele_counts as ac
+	on
+		uh.hit_systematic_name= ac.mutated_gene_systematic_name
+	left join
+		cte_potential_agg_processor as pap
+	on
+		uh.hit_systematic_name=pap.systematic_name
+	group by
+		uh.hit_systematic_name,
+		uh.hit_standard_name
+	order by
+		uh.hit_standard_name;
+end //
+delimiter ;
+-- call p_unique_hit_stage_effect_allele_count;
