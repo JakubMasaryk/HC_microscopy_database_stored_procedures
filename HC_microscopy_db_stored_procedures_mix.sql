@@ -775,3 +775,184 @@ begin
 end //
 delimiter ;
 -- call p_single_cell_data_agg_size_all_alleles_selected_gene('CDC48', 33, 0, 70);
+
+
+
+-- pulls all relevant summary-by-well data for a specific inhibitor (and other inhibitors done within the same experiment)
+-- input: 'p_inh_abb' abbrevation for a selected inhibitor, e.g., 'CHX' for cycloheximide
+drop procedure if exists hc_microscopy_data_v2.p_inhibitor_sbw_data;
+delimiter //
+create procedure hc_microscopy_data_v2.p_inhibitor_sbw_data(in p_inh_abb varchar(10))
+begin
+	with
+	cte_inhib_experiments as -- date_labels for all experiments including selected inhibitor
+	(
+	select distinct	
+		ei.date_label
+	from
+		experiment_inhibitor as ei
+	inner join
+		inhibitors as i
+	on
+		ei.inhibitor_id=i.inhibitor_id
+	where
+		i.inhibitor_abbreviation= p_inh_abb
+	),	
+	cte_microscopy_intervals as -- date_label and microscopy interval (in mins), if multiple are relevant- multiple pairs
+	(
+	select distinct
+		date_label,
+		microscopy_interval_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_inhib_experiments)
+	),
+	cte_microscopy_initial_delays as -- date_label and microscopy initial delay (in mins), if multiple are relevant- multiple pairs
+	(
+	select distinct
+		date_label,
+		microscopy_initial_delay_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_inhib_experiments)
+	)
+	select -- relevant data
+		sacm.date_label,
+		sacm.experimental_well_label,
+		sacm.biological_repeat,
+		sacm.metal_concentration,
+		sacm.metal_concentration_unit,
+		saci.inhibitor_abbreviation,
+		saci.inhibitor_concentration,
+		saci.inhibitor_concentration_unit,
+		saci.inhibitor_solvent,
+		saci.inhibitor_solvent_concentration,
+		saci.inhibitor_solvent_concentration_unit,
+		-- cac.timepoint,
+		-- cte1.microscopy_interval_min,
+		-- cte2.microscopy_initial_delay_min,
+		cac.timepoint * cte1.microscopy_interval_min - (cte1.microscopy_interval_min - cte2.microscopy_initial_delay_min) as timepoint_minutes,
+		cac.number_of_cells,
+		cac.number_of_cells_with_foci,
+		fnas.avg_number_of_foci_per_cell,
+		fnas.avg_size_single_focus
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		strains_and_conditions_inhibitor as saci
+	on
+		sacm.date_label= saci.date_label and
+		sacm.experimental_well_label= saci.experimental_well_label
+	inner join
+		experimental_data_sbw_cell_area_and_counts as cac
+	on
+		sacm.date_label= cac.date_label and
+		sacm.experimental_well_label= cac.experimental_well_label
+	inner join
+		experimental_data_sbw_foci_number_and_size as fnas
+	on
+		cac.date_label=fnas.date_label and
+		cac.experimental_well_label= fnas.experimental_well_label and
+		cac.timepoint= fnas.timepoint
+	inner join
+		cte_microscopy_intervals as cte1
+	on
+		sacm.date_label= cte1.date_label
+	inner join
+		cte_microscopy_initial_delays as cte2
+	on
+		sacm.date_label= cte2.date_label
+	where
+		sacm.date_label in (select * from cte_inhib_experiments);
+end //
+delimiter ;
+call p_inhibitor_sbw_data('CHX');
+
+
+
+-- pulls all relevant single-cell data for a specific inhibitor (and other inhibitors done within the same experiment)
+-- input: 'p_inh_abb' abbrevation for a selected inhibitor, e.g., 'CHX' for cycloheximide
+drop procedure if exists hc_microscopy_data_v2.p_inhibitor_scd_data;
+delimiter //
+create procedure hc_microscopy_data_v2.p_inhibitor_scd_data(in p_inh_abb varchar(10))
+begin
+with
+	cte_inhib_experiments as -- date_labels for all experiments including selected inhibitor
+	(
+	select distinct	
+		ei.date_label
+	from
+		experiment_inhibitor as ei
+	inner join
+		inhibitors as i
+	on
+		ei.inhibitor_id=i.inhibitor_id
+	where
+		i.inhibitor_abbreviation= p_inh_abb
+	),	
+	cte_microscopy_intervals as -- date_label and microscopy interval (in mins), if multiple are relevant- multiple pairs
+	(
+	select distinct
+		date_label,
+		microscopy_interval_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_inhib_experiments)
+	),
+	cte_microscopy_initial_delays as -- date_label and microscopy initial delay (in mins), if multiple are relevant- multiple pairs
+	(
+	select distinct
+		date_label,
+		microscopy_initial_delay_min
+	from
+		experiments
+	where
+		date_label in (select * from cte_inhib_experiments)
+	)
+	select -- relevant data
+		sacm.date_label,
+		sacm.experimental_well_label,
+		sacm.biological_repeat,
+		sacm.metal_concentration,
+		sacm.metal_concentration_unit,
+		saci.inhibitor_abbreviation,
+		saci.inhibitor_concentration,
+		saci.inhibitor_concentration_unit,
+		saci.inhibitor_solvent,
+		saci.inhibitor_solvent_concentration,
+		saci.inhibitor_solvent_concentration_unit,
+		-- cac.timepoint,
+		-- cte1.microscopy_interval_min,
+		-- cte2.microscopy_initial_delay_min,
+		fnaa.timepoint * cte1.microscopy_interval_min - (cte1.microscopy_interval_min - cte2.microscopy_initial_delay_min) as timepoint_minutes,
+		fnaa.fov_cell_id,
+		fnaa.number_of_foci,
+		fnaa.total_foci_area
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		strains_and_conditions_inhibitor as saci
+	on
+		sacm.date_label= saci.date_label and
+		sacm.experimental_well_label= saci.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label= fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	inner join
+		cte_microscopy_intervals as cte1
+	on
+		sacm.date_label= cte1.date_label
+	inner join
+		cte_microscopy_initial_delays as cte2
+	on
+		sacm.date_label= cte2.date_label
+	where
+		sacm.date_label in (select * from cte_inhib_experiments);
+end //
+delimiter ;
+call p_inhibitor_scd_data('NOC');
