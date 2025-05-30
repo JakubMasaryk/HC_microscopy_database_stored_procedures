@@ -836,6 +836,7 @@ begin
 		cac.timepoint * cte1.microscopy_interval_min - (cte1.microscopy_interval_min - cte2.microscopy_initial_delay_min) as timepoint_minutes,
 		cac.number_of_cells,
 		cac.number_of_cells_with_foci,
+        round(cac.number_of_cells_with_foci/cac.number_of_cells*100, 2) as percentag_of_cells_with_foci,
 		fnas.avg_number_of_foci_per_cell,
 		fnas.avg_size_single_focus
 	from
