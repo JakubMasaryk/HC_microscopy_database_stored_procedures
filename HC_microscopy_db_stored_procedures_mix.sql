@@ -780,9 +780,10 @@ delimiter ;
 
 -- pulls all relevant summary-by-well data for a specific inhibitor (and other inhibitors done within the same experiment)
 -- input: 'p_inh_abb' abbrevation for a selected inhibitor, e.g., 'CHX' for cycloheximide
+-- 		  'p_init_tmpts_skip' number of initital timepoints skipped (generally low-quality data)
 drop procedure if exists hc_microscopy_data_v2.p_inhibitor_sbw_data;
 delimiter //
-create procedure hc_microscopy_data_v2.p_inhibitor_sbw_data(in p_inh_abb varchar(10))
+create procedure hc_microscopy_data_v2.p_inhibitor_sbw_data(in p_inh_abb varchar(10), in p_init_tmpts_skip int)
 begin
 	with
 	cte_inhib_experiments as -- date_labels for all experiments including selected inhibitor
@@ -866,18 +867,19 @@ begin
 	on
 		sacm.date_label= cte2.date_label
 	where
-		sacm.date_label in (select * from cte_inhib_experiments);
+		sacm.date_label in (select * from cte_inhib_experiments) and
+        	cac.timepoint > p_init_tmpts_skip;
 end //
 delimiter ;
-call p_inhibitor_sbw_data('CHX');
-
+call p_inhibitor_sbw_data('CHX', 3);
 
 
 -- pulls all relevant single-cell data for a specific inhibitor (and other inhibitors done within the same experiment)
 -- input: 'p_inh_abb' abbrevation for a selected inhibitor, e.g., 'CHX' for cycloheximide
+-- 		  'p_init_tmpts_skip' number of initital timepoints skipped (generally low-quality data)
 drop procedure if exists hc_microscopy_data_v2.p_inhibitor_scd_data;
 delimiter //
-create procedure hc_microscopy_data_v2.p_inhibitor_scd_data(in p_inh_abb varchar(10))
+create procedure hc_microscopy_data_v2.p_inhibitor_scd_data(in p_inh_abb varchar(10), in p_init_tmpts_skip int)
 begin
 with
 	cte_inhib_experiments as -- date_labels for all experiments including selected inhibitor
@@ -925,7 +927,7 @@ with
 		saci.inhibitor_solvent,
 		saci.inhibitor_solvent_concentration,
 		saci.inhibitor_solvent_concentration_unit,
-		-- cac.timepoint,
+		-- fnaa.timepoint,
 		-- cte1.microscopy_interval_min,
 		-- cte2.microscopy_initial_delay_min,
 		fnaa.timepoint * cte1.microscopy_interval_min - (cte1.microscopy_interval_min - cte2.microscopy_initial_delay_min) as timepoint_minutes,
@@ -953,7 +955,8 @@ with
 	on
 		sacm.date_label= cte2.date_label
 	where
-		sacm.date_label in (select * from cte_inhib_experiments);
+		sacm.date_label in (select * from cte_inhib_experiments) and
+        	fnaa.timepoint > p_init_tmpts_skip;
 end //
 delimiter ;
-call p_inhibitor_scd_data('NOC');
+call p_inhibitor_scd_data('NOC', 3);
