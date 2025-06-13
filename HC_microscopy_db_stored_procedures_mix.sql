@@ -959,4 +959,156 @@ with
         	fnaa.timepoint > p_init_tmpts_skip;
 end //
 delimiter ;
+
+
+
+-- inhibitor summary-by-well data (sbw) data pull : selected date_label (single input) and selected experimental_well_label (list)
+-- pull for each inhibitor used in figures (chx, lata, noc, brfa, mg132...)
+-- inputs: 'p_date_label'- date_label of a selected experiment, 'p_well_list'- list of relevant wells
+drop procedure if exists hc_microscopy_data_v2.inhibitors_data_sbw;
+delimiter //
+create procedure hc_microscopy_data_v2.inhibitors_data_sbw(in p_date_label int, in p_well_list json)
+begin
+	with
+	cte_date_label_initital_delay_control_strain as -- microscopy initital delay/inerval and used strain (for selected experiment/date_label)
+	(
+	select
+		e.date_label,
+		e.microscopy_interval_min,
+		e.microscopy_initial_delay_min,
+		wt.arbitrary_label
+	from
+		experiments as e
+	inner join
+		wild_types as wt
+	on
+		e.wild_type_control_id= wt.wild_type_control_id
+	),
+	cte_well_list as -- transforms the list of selected mutants (p_gene_list) into a json table
+	(
+	select
+		*
+	from
+		json_table(p_well_list, '$[*]' columns(standard_name varchar(12) path '$')) as gene_list
+	)
+	select -- relevant data
+		sacm.date_label,
+        	sacm.biological_repeat,
+		fnas.timepoint,
+        	fnas.timepoint * cte1.microscopy_interval_min - (cte1.microscopy_interval_min - cte1.microscopy_initial_delay_min) as timepoint_minutes,
+		case
+			when cte1.arbitrary_label= 'erg6' then '#erg6'
+			else cte1.arbitrary_label
+		end as strain_arbitrary_label,
+		sacm.metal_concentration as as_concentration,
+		sacm.metal_concentration_unit as as_concentration_unit,
+		saci.inhibitor_abbreviation,
+		saci.inhibitor_concentration,
+		saci.inhibitor_concentration_unit,
+		saci.inhibitor_solvent,
+		saci.inhibitor_solvent_concentration,
+		saci.inhibitor_solvent_concentration_unit,
+		round(caac.number_of_cells_with_foci/caac.number_of_cells*100, 2) as percentage_of_cells_with_agg,
+		fnas.avg_number_of_foci_per_cell,
+		fnas.avg_size_single_focus
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		strains_and_conditions_inhibitor as saci
+	on
+		sacm.date_label=saci.date_label and
+		sacm.experimental_well_label= saci.experimental_well_label
+	inner join
+		experimental_data_sbw_cell_area_and_counts as caac
+	on
+		sacm.date_label= caac.date_label and
+		sacm.experimental_well_label= caac.experimental_well_label
+	inner join
+		experimental_data_sbw_foci_number_and_size as fnas
+	on
+		caac.date_label= fnas.date_label and
+		caac.experimental_well_label= fnas.experimental_well_label and
+		caac.timepoint= fnas.timepoint
+	inner join
+		cte_date_label_initital_delay_control_strain as cte1
+	on
+		sacm.date_label= cte1.date_label
+	where -- filter by selected date_label and experimental wells
+		sacm.date_label= p_date_label and
+        	sacm.experimental_well_label in (select * from cte_well_list);
+end //
+delimiter ;
+
+
+
+-- inhibitor single-cell data (scd) data pull : selected date_label (single input) and selected experimental_well_label (list)
+-- pull for each inhibitor used in figures (chx, lata, noc, brfa, mg132...)
+-- inputs: 'p_date_label'- date_label of a selected experiment, 'p_well_list'- list of relevant wells 
+drop procedure if exists hc_microscopy_data_v2.inhibitors_data_scd;
+delimiter //
+create procedure hc_microscopy_data_v2.inhibitors_data_scd(in p_date_label int, in p_well_list json)
+begin
+	with
+	cte_date_label_initital_delay_control_strain as -- microscopy initital delay/inerval and used strain (for selected experiment/date_label)
+	(
+	select
+		e.date_label,
+		e.microscopy_interval_min,
+		e.microscopy_initial_delay_min,
+		wt.arbitrary_label
+	from
+		experiments as e
+	inner join
+		wild_types as wt
+	on
+		e.wild_type_control_id= wt.wild_type_control_id
+	),
+	cte_well_list as -- transforms the list of selected mutants (p_gene_list) into a json table
+	(
+	select
+		*
+	from
+		json_table(p_well_list, '$[*]' columns(standard_name varchar(12) path '$')) as gene_list
+	)
+	select -- relevant data
+		sacm.date_label,
+        	sacm.biological_repeat,
+        	fnaa.timepoint,
+        	fnaa.timepoint * cte1.microscopy_interval_min - (cte1.microscopy_interval_min - cte1.microscopy_initial_delay_min) as timepoint_minutes,
+		case
+			when cte1.arbitrary_label= 'erg6' then '#erg6'
+			else cte1.arbitrary_label
+		end as strain_arbitrary_label,
+		sacm.metal_concentration as as_concentration,
+		sacm.metal_concentration_unit as as_concentration_unit,
+		saci.inhibitor_abbreviation,
+		saci.inhibitor_concentration,
+		saci.inhibitor_concentration_unit,
+		saci.inhibitor_solvent,
+		saci.inhibitor_solvent_concentration,
+		saci.inhibitor_solvent_concentration_unit,
+		concat("_", fnaa.fov_cell_id) as fov_cell_id, -- '_' prevents automatic reformatting into date dtype by excel
+		fnaa.number_of_foci,
+        fnaa.total_foci_area
+	from
+		strains_and_conditions_main as sacm
+	inner join
+		strains_and_conditions_inhibitor as saci
+	on
+		sacm.date_label=saci.date_label and
+		sacm.experimental_well_label= saci.experimental_well_label
+	inner join
+		experimental_data_scd_foci_number_and_area as fnaa
+	on
+		sacm.date_label= fnaa.date_label and
+		sacm.experimental_well_label= fnaa.experimental_well_label
+	inner join
+		cte_date_label_initital_delay_control_strain as cte1
+	on
+		sacm.date_label= cte1.date_label
+	where -- filter by selected date_label and experimental wells
+		sacm.date_label= p_date_label and
+        	sacm.experimental_well_label in (select * from cte_well_list);
+end //
+delimiter ;
 call p_inhibitor_scd_data('NOC', 3);
